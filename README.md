@@ -346,6 +346,7 @@ input[type="password"], input[type="text"], select {
 <div class="container">
     <div class="controls">
         <button onclick="exportToExcel()">📊 تصدير Excel</button>
+        <button onclick="exportPeriodToExcel()">📅 تصدير فترة كاملة</button>
         <button onclick="printPage()">🖨️ طباعة</button>
         <button onclick="showAllClasses()">👁️ عرض الكل</button>
         <button onclick="showTodayAttendance()">📅 عرض تحضير اليوم</button>
@@ -644,6 +645,9 @@ let periodSettings = {
     endDate: null
 };
 
+// بيانات التحضير المخزنة لكل يوم
+let periodAttendanceData = {};
+
 // التاريخ الهجري
 let hijriDate = {
     day: 1,
@@ -698,6 +702,9 @@ function initPage() {
         updatePeriodInfo();
     }
     
+    // محاولة تحميل بيانات التحضير المحفوظة
+    loadPeriodAttendanceData();
+    
     // حساب التاريخ الهجري الفعلي من التاريخ الميلادي
     calculateHijriFromGregorian();
     
@@ -715,6 +722,20 @@ function initPage() {
     
     // تحديث حقول التاريخ الهجري
     updateHijriFields();
+}
+
+// تحميل بيانات التحضير المحفوظة للفترة
+function loadPeriodAttendanceData() {
+    const savedData = localStorage.getItem('teacherTracker_periodAttendanceData');
+    if (savedData) {
+        periodAttendanceData = JSON.parse(savedData);
+        console.log('تم تحميل بيانات التحضير للفترة:', Object.keys(periodAttendanceData).length, 'يوم');
+    }
+}
+
+// حفظ بيانات التحضير للفترة
+function savePeriodAttendanceData() {
+    localStorage.setItem('teacherTracker_periodAttendanceData', JSON.stringify(periodAttendanceData));
 }
 
 // حساب التاريخ الهجري من التاريخ الميلادي
@@ -797,6 +818,32 @@ function getShortGregorianDate(date) {
     const arabicYear = convertToArabicNumbers(year);
     
     return `${arabicDay} ${month} ${arabicYear}`;
+}
+
+// حساب التاريخ الهجري لـ Date معين
+function calculateHijriForDate(date) {
+    try {
+        if (typeof HijriDate !== 'undefined') {
+            const hijri = new HijriDate(date);
+            return {
+                day: hijri.date,
+                month: hijri.month,
+                year: hijri.year,
+                monthName: hijriMonths[hijri.month - 1]
+            };
+        } else {
+            const fixedHijri = getApproximateHijriDate(date);
+            return {
+                day: fixedHijri.day,
+                month: fixedHijri.month,
+                year: fixedHijri.year,
+                monthName: hijriMonths[fixedHijri.month - 1]
+            };
+        }
+    } catch (error) {
+        console.error("خطأ في حساب التاريخ الهجري:", error);
+        return { day: 1, month: 1, year: 1446, monthName: "محرم" };
+    }
 }
 
 // تحديث عرض التاريخ
@@ -1286,6 +1333,82 @@ function randomAttendance() {
     alert(`تم تعيين الحضور عشوائيا بنجاح للتاريخ الحالي!\n\nالإحصائيات:\n- إجمالي الطلاب: ${totalStudents}\n- الطلاب المتميزين (حصلوا على ✓ في كل الخيارات): ${starredStudents/5}\n- الطلاب العاديين (حصلوا على تقييم عشوائي): ${regularStudents/5}`);
 }
 
+// توليد تحضير عشوائي ليوم معين
+function generateRandomAttendanceForDate(date) {
+    const dateKey = date.toISOString().split('T')[0];
+    const hijriDateInfo = calculateHijriForDate(date);
+    
+    const attendanceData = {
+        date: dateKey,
+        gregorianDate: getShortGregorianDate(date),
+        hijriDate: `${convertToArabicNumbers(hijriDateInfo.day)} ${hijriDateInfo.monthName} ${convertToArabicNumbers(hijriDateInfo.year)}هـ`,
+        classes: {}
+    };
+    
+    // توليد بيانات لكل صف
+    for (const className in studentsData) {
+        attendanceData.classes[className] = {
+            students: [],
+            stats: {
+                total: 0,
+                present: 0,
+                absent: 0,
+                starred: 0
+            }
+        };
+        
+        studentsData[className].forEach((studentName, index) => {
+            // تحديد عشوائياً إذا كان الطالب متميزاً (20% احتمال)
+            const isStarred = Math.random() < 0.2;
+            
+            // إنشاء بيانات الطالب
+            const studentData = {
+                id: index + 1,
+                name: studentName,
+                isStarred: isStarred,
+                attendance: [],
+                hasStar: isStarred
+            };
+            
+            // توليد بيانات الحضور (5 عناصر)
+            for (let i = 0; i < 5; i++) {
+                if (isStarred) {
+                    // الطلاب المتميزون يحصلون على ✓ في كل الخيارات
+                    studentData.attendance.push({
+                        type: ['الحضور', 'الواجبات', 'المشروعات', 'تطبيقات وأنشطة', 'مشاركة'][i],
+                        value: '✔',
+                        isPresent: true
+                    });
+                    attendanceData.classes[className].stats.present++;
+                } else {
+                    // الطلاب العاديون يحصلون على تقييم عشوائي
+                    const isPresent = Math.random() > 0.3;
+                    studentData.attendance.push({
+                        type: ['الحضور', 'الواجبات', 'المشروعات', 'تطبيقات وأنشطة', 'مشاركة'][i],
+                        value: isPresent ? '✔' : '✖',
+                        isPresent: isPresent
+                    });
+                    
+                    if (isPresent) {
+                        attendanceData.classes[className].stats.present++;
+                    } else {
+                        attendanceData.classes[className].stats.absent++;
+                    }
+                }
+            }
+            
+            attendanceData.classes[className].students.push(studentData);
+            attendanceData.classes[className].stats.total++;
+            
+            if (isStarred) {
+                attendanceData.classes[className].stats.starred++;
+            }
+        });
+    }
+    
+    return attendanceData;
+}
+
 // تحضير عشوائي للفترة المحددة
 function randomAttendanceForPeriod() {
     if (!adminActive) {
@@ -1325,41 +1448,27 @@ function randomAttendanceForPeriod() {
     let totalStarredStudents = 0;
     let totalRegularStudents = 0;
     
-    // نسخ التاريخ الحالي لحفظه
-    const originalSelectedDate = new Date(selectedDate);
-    
     // الانتقال عبر كل يوم في الفترة
     const currentDate = new Date(startDate);
     
     while (currentDate <= endDate) {
-        // تحديث التاريخ الحالي في النظام
-        selectedDate = new Date(currentDate);
-        calculateHijriFromGregorian();
+        // إنشاء تحضير عشوائي لهذا اليوم
+        const attendanceData = generateRandomAttendanceForDate(currentDate);
+        const dateKey = currentDate.toISOString().split('T')[0];
         
-        // تطبيق التحضير العشوائي لهذا اليوم
+        // حفظ بيانات اليوم
+        periodAttendanceData[dateKey] = attendanceData;
+        
+        // حساب الإحصائيات
         let dayStudents = 0;
         let dayStarred = 0;
-        let dayRegular = 0;
         
-        // هنا نقوم بمحاكاة التحضير العشوائي لكل يوم
-        // في تطبيق حقيقي، سنقوم بحفظ البيانات لكل يوم في localStorage
-        dayStudents = Object.values(studentsData).reduce((sum, classStudents) => sum + classStudents.length, 0);
+        for (const className in attendanceData.classes) {
+            dayStudents += attendanceData.classes[className].stats.total;
+            dayStarred += attendanceData.classes[className].stats.starred;
+        }
         
-        // تقدير عدد الطلاب المتميزين والعاديين (نسبة افتراضية 20% متميزين)
-        dayStarred = Math.round(dayStudents * 0.2);
-        dayRegular = dayStudents - dayStarred;
-        
-        // حفظ بيانات الحضور لهذا اليوم
-        const dateKey = selectedDate.toISOString().split('T')[0];
-        const attendanceData = {
-            date: dateKey,
-            totalStudents: dayStudents,
-            starredStudents: dayStarred,
-            regularStudents: dayRegular,
-            attendanceGenerated: true
-        };
-        
-        localStorage.setItem(`teacherTracker_attendance_${dateKey}`, JSON.stringify(attendanceData));
+        const dayRegular = dayStudents - dayStarred;
         
         // تحديث المجاميع
         totalDaysProcessed++;
@@ -1371,10 +1480,8 @@ function randomAttendanceForPeriod() {
         currentDate.setDate(currentDate.getDate() + 1);
     }
     
-    // العودة إلى التاريخ الأصلي
-    selectedDate = originalSelectedDate;
-    calculateHijriFromGregorian();
-    updateDateDisplay();
+    // حفظ بيانات الفترة
+    savePeriodAttendanceData();
     
     // حساب الإحصائيات
     const avgStudentsPerDay = totalStudentsProcessed / totalDaysProcessed;
@@ -1393,6 +1500,164 @@ function randomAttendanceForPeriod() {
                          `💾 تم حفظ بيانات التحضير لكل يوم في النظام.`;
     
     alert(resultMessage);
+}
+
+// تصدير فترة كاملة إلى Excel
+function exportPeriodToExcel() {
+    if (!periodSettings.startDate || !periodSettings.endDate) {
+        alert("لا توجد فترة محددة للتصدير!\n\nيرجى تحديد فترة أولاً ثم إنشاء تحضير لها.");
+        return;
+    }
+    
+    const startDate = new Date(periodSettings.startDate);
+    const endDate = new Date(periodSettings.endDate);
+    
+    // حساب عدد الأيام
+    const timeDiff = endDate.getTime() - startDate.getTime();
+    const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24)) + 1;
+    
+    // التحقق من وجود بيانات للفترة
+    let hasData = false;
+    for (const dateKey in periodAttendanceData) {
+        const date = new Date(dateKey);
+        if (date >= startDate && date <= endDate) {
+            hasData = true;
+            break;
+        }
+    }
+    
+    if (!hasData) {
+        alert("لا توجد بيانات تحضير للفترة المحددة!\n\nيرجى إنشاء تحضير عشوائي للفترة أولاً.");
+        return;
+    }
+    
+    let tablesHTML = `<h2>تقرير التحضير للفترة الكاملة</h2>`;
+    tablesHTML += `<h3>المعلم: فهد الخالدي - المادة: اللغة الإنجليزية</h3>`;
+    tablesHTML += `<h3>${document.getElementById('currentSemesterInfo').textContent}</h3>`;
+    tablesHTML += `<h3>المدرسة: سعيد بن العاص المتوسطة</h3>`;
+    tablesHTML += `<h3>الفترة: من ${getShortGregorianDate(startDate)} إلى ${getShortGregorianDate(endDate)} (${daysDiff} يوم)</h3>`;
+    tablesHTML += `<h3>تاريخ التصدير: ${getShortGregorianDate(new Date())}</h3>`;
+    
+    // إضافة بيانات كل يوم
+    const currentDate = new Date(startDate);
+    
+    while (currentDate <= endDate) {
+        const dateKey = currentDate.toISOString().split('T')[0];
+        
+        if (periodAttendanceData[dateKey]) {
+            const dayData = periodAttendanceData[dateKey];
+            
+            tablesHTML += `<h3 style="background:#e8f5e9; padding:10px; margin-top:20px;">اليوم: ${dayData.gregorianDate} (${dayData.hijriDate})</h3>`;
+            
+            // إضافة جداول لكل صف في هذا اليوم
+            for (const className in dayData.classes) {
+                const classData = dayData.classes[className];
+                
+                tablesHTML += `<h4>الصف ${className} (${classData.stats.total} طالب)</h4>`;
+                tablesHTML += `<table border="1" cellpadding="5" cellspacing="0" style="width:100%; border-collapse:collapse; margin-bottom:15px;">`;
+                tablesHTML += `<thead><tr>
+                    <th width="5%">م</th>
+                    <th>الاسم</th>
+                    <th width="8%">الحضور</th>
+                    <th width="8%">الواجبات</th>
+                    <th width="8%">المشروعات</th>
+                    <th width="8%">تطبيقات وأنشطة</th>
+                    <th width="8%">مشاركة</th>
+                    <th width="8%">⭐</th>
+                </tr></thead><tbody>`;
+                
+                classData.students.forEach(student => {
+                    tablesHTML += `<tr>`;
+                    tablesHTML += `<td>${student.id}</td>`;
+                    tablesHTML += `<td>${student.name}</td>`;
+                    
+                    student.attendance.forEach(item => {
+                        tablesHTML += `<td style="${item.value === '✔' ? 'background-color:#e8f5e9;' : 'background-color:#ffebee;'}">${item.value}</td>`;
+                    });
+                    
+                    tablesHTML += `<td>${student.hasStar ? '⭐' : ''}</td>`;
+                    tablesHTML += `</tr>`;
+                });
+                
+                tablesHTML += `</tbody></table>`;
+                
+                // إضافة إحصائيات الصف
+                tablesHTML += `<div style="margin-bottom:20px; padding:8px; background:#f5f5f5; border-radius:5px;">
+                    <strong>إحصائيات الصف ${className}:</strong>
+                    إجمالي الطلاب: ${classData.stats.total} | 
+                    الحضور: ${classData.stats.present} | 
+                    الغياب: ${classData.stats.absent} | 
+                    المتميزون: ${classData.stats.starred}
+                </div>`;
+            }
+        }
+        
+        // الانتقال إلى اليوم التالي
+        currentDate.setDate(currentDate.getDate() + 1);
+    }
+    
+    // إضافة ملخص شامل
+    tablesHTML += `<h3 style="background:#e0f7fa; padding:10px; margin-top:20px;">ملخص شامل للفترة</h3>`;
+    
+    let periodTotalStudents = 0;
+    let periodTotalPresent = 0;
+    let periodTotalAbsent = 0;
+    let periodTotalStarred = 0;
+    
+    for (const dateKey in periodAttendanceData) {
+        const date = new Date(dateKey);
+        if (date >= startDate && date <= endDate) {
+            const dayData = periodAttendanceData[dateKey];
+            
+            for (const className in dayData.classes) {
+                const classData = dayData.classes[className];
+                periodTotalStudents += classData.stats.total;
+                periodTotalPresent += classData.stats.present;
+                periodTotalAbsent += classData.stats.absent;
+                periodTotalStarred += classData.stats.starred;
+            }
+        }
+    }
+    
+    tablesHTML += `<div style="padding:15px; background:#fff8e1; border-radius:5px; margin-bottom:20px;">
+        <strong>إجمالي الفترة:</strong><br>
+        - عدد الأيام: ${daysDiff} يوم<br>
+        - إجمالي الطلاب: ${periodTotalStudents} طالب<br>
+        - إجمالي الحضور: ${periodTotalPresent} حالة حضور<br>
+        - إجمالي الغياب: ${periodTotalAbsent} حالة غياب<br>
+        - إجمالي المتميزين: ${periodTotalStarred} طالب<br>
+        - متوسط الحضور: ${((periodTotalPresent / (periodTotalPresent + periodTotalAbsent)) * 100).toFixed(1)}%
+    </div>`;
+    
+    let uri = 'data:application/vnd.ms-excel;base64,';
+    let template = `<html xmlns:o="urn:schemas-microsoft-com:office:office" 
+                   xmlns:x="urn:schemas-microsoft-com:office:excel" 
+                   xmlns="http://www.w3.org/TR/REC-html40">
+                   <head>
+                   <meta charset="UTF-8">
+                   <!--[if gte mso 9]>
+                   <xml>
+                   <x:ExcelWorkbook>
+                   <x:ExcelWorksheets>
+                   <x:ExcelWorksheet>
+                   <x:Name>تقرير الفترة</x:Name>
+                   <x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
+                   </x:ExcelWorksheet>
+                   </x:ExcelWorksheets>
+                   </x:ExcelWorkbook>
+                   </xml>
+                   <![endif]-->
+                   </head>
+                   <body dir="rtl">${tablesHTML}</body></html>`;
+    
+    let link = document.createElement("a");
+    link.href = uri + btoa(unescape(encodeURIComponent(template)));
+    const startStr = startDate.toISOString().split('T')[0];
+    const endStr = endDate.toISOString().split('T')[0];
+    link.download = `تقرير_الفترة_${startStr}_إلى_${endStr}.xls`;
+    link.click();
+    
+    alert(`تم تصدير تقرير الفترة بنجاح!\n\nيتضمن التقرير بيانات ${daysDiff} يوم من ${getShortGregorianDate(startDate)} إلى ${getShortGregorianDate(endDate)}`);
 }
 
 // نقل طالب
@@ -1484,6 +1749,7 @@ function backupData() {
         selectedDate: selectedDate.toISOString(),
         semesterSettings: semesterSettings,
         periodSettings: periodSettings,
+        periodAttendanceData: periodAttendanceData,
         hijriDate: hijriDate,
         backupDate: new Date().toISOString()
     };
